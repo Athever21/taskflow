@@ -1,0 +1,88 @@
+services:
+  # ── PHP-FPM (Laravel) ─────────────────────────────────────────
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    container_name: taskflow_app
+    restart: unless-stopped
+    working_dir: /var/www/backend
+    volumes:
+      - ./backend:/var/www/backend
+    environment:
+      APP_ENV: ${APP_ENV}
+      APP_DEBUG: ${APP_DEBUG}
+    networks:
+      - taskflow
+    depends_on:
+      db:
+        condition: service_healthy
+
+  # ── Nginx ─────────────────────────────────────────────────────
+  nginx:
+    image: nginx:1.25-alpine
+    container_name: taskflow_nginx
+    restart: unless-stopped
+    ports:
+      - "${NGINX_PORT}:80"
+    volumes:
+      - ./backend:/var/www/backend
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    networks:
+      - taskflow
+    depends_on:
+      - app
+
+  # ── MySQL 8 ───────────────────────────────────────────────────
+  db:
+    image: mysql:8.0
+    container_name: taskflow_db
+    restart: unless-stopped
+    environment:
+      MYSQL_DATABASE: ${DB_DATABASE}
+      MYSQL_USER: ${DB_USERNAME}
+      MYSQL_PASSWORD: ${DB_PASSWORD}
+      MYSQL_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+    ports:
+      - "${DB_EXTERNAL_PORT}:3306"
+    volumes:
+      - db_data:/var/lib/mysql
+    networks:
+      - taskflow
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "${DB_USERNAME}", "-p${DB_PASSWORD}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # ── React (Vite dev server) ───────────────────────────────────
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    container_name: taskflow_frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT}:5173"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      VITE_API_URL: ${VITE_API_URL}
+    networks:
+      - taskflow
+
+  # ── Redis ─────────────────────────────────────────────────────
+  redis:
+    image: redis:7-alpine
+    container_name: taskflow_redis
+    restart: unless-stopped
+    networks:
+      - taskflow
+
+volumes:
+  db_data:
+
+networks:
+  taskflow:
+    driver: bridge
